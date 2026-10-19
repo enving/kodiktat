@@ -480,17 +480,238 @@ def _dbfs(peak):
     return max(-60.0, 20 * math.log10(peak / 32768))
 
 
+class _RecPill(QWidget):
+    """Floating recording indicator. Stays on top without ever taking focus
+    (tool window + show-without-activating) and joins every Space including
+    fullscreen apps, so it is visible even when the user works fullscreen
+    (no menu bar, no desktop) while the target app keeps keyboard focus."""
+
+    def __init__(self):
+        super().__init__(
+            None,
+            Qt.WindowType.Tool
+            | Qt.WindowType.WindowStaysOnTopHint
+            | Qt.WindowType.FramelessWindowHint,
+        )
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setStyleSheet("background: #1c1c1e; border-radius: 12px;")
+        row = QHBoxLayout(self)
+        row.setContentsMargins(12, 8, 12, 8)
+        row.setSpacing(8)
+        dot = QLabel("●")
+        dot.setStyleSheet(
+            "color: #ff453a; font-size: 16px; background: transparent; border: none;")
+        row.addWidget(dot)
+        self.text = QLabel("REC")
+        self.text.setStyleSheet(
+            "color: white; font-size: 13px; font-weight: 600;"
+            " background: transparent; border: none;")
+        row.addWidget(self.text)
+        self.bar = QProgressBar()
+        self.bar.setRange(0, 100)
+        self.bar.setValue(0)
+        self.bar.setTextVisible(False)
+        self.bar.setFixedSize(110, 8)
+        self.bar.setStyleSheet(
+            "QProgressBar { background: #3a3a3c; border: none; border-radius: 4px; }"
+            " QProgressBar::chunk { background: #30d158; border-radius: 4px; }")
+        row.addWidget(self.bar)
+
+    def show_pill(self):
+        screen = QApplication.primaryScreen()
+        self.adjustSize()
+        if screen is not None:
+            geo = screen.availableGeometry()
+            self.move(geo.center().x() - self.width() // 2, geo.top() + 24)
+        self.show()
+        # Plain Qt windows stay on the desktop Space and vanish under
+        # fullscreen apps. Opt this one out natively: join all Spaces,
+        # stay put (no Expose sliding), float as fullscreen auxiliary.
+        try:
+            from AppKit import (NSStatusWindowLevel,
+                                NSView,
+                                NSWindowCollectionBehaviorCanJoinAllSpaces,
+                                NSWindowCollectionBehaviorFullScreenAuxiliary,
+                                NSWindowCollectionBehaviorStationary)
+            from PyQt6 import sip
+            nsview = sip.wrapinstance(int(self.winId()), NSView)
+            win = nsview.window()
+            if win is not None:
+                win.setCollectionBehavior_(
+                    NSWindowCollectionBehaviorCanJoinAllSpaces
+                    | NSWindowCollectionBehaviorStationary
+                    | NSWindowCollectionBehaviorFullScreenAuxiliary)
+                win.setLevel_(NSStatusWindowLevel)
+        except Exception:
+            pass
+
+
+class _RecBadge:
+    """Roter Aufnahme-Punkt als natives, randloses Fenster oben rechts auf dem
+    Hauptbildschirm (NSScreen.screens()[0], der mit der Menueleiste), direkt
+    unter der Menueleiste. Grund: macOS blendet Statusitems aus, wenn die
+    Menueleiste voll ist (schmaler Hauptbildschirm); ein eigenes Fenster
+    bleibt immer sichtbar. Kein Fokusklau, alle Spaces, ueber Vollbild,
+    folgt Bildschirmwechseln (Sidecar an/ab). Nur Hauptthread."""
+
+    W, H, MARGIN = 118, 26, 10
+
+    def __init__(self):
+        self._win = None
+        self._label = None
+        self._observer = None
+        self._visible = False
+
+    def _build(self):
+        from AppKit import (NSBackingStoreBuffered, NSColor, NSFont,
+                            NSMakeRect, NSPanel, NSTextField,
+                            NSWindowCollectionBehaviorCanJoinAllSpaces,
+                            NSWindowCollectionBehaviorFullScreenAuxiliary,
+                            NSWindowCollectionBehaviorStationary)
+        # borderless (0) + nonactivating panel (1 << 7)
+        win = NSPanel.alloc().initWithContentRect_styleMask_backing_defer_(
+            NSMakeRect(0, 0, self.W, self.H), 0 | (1 << 7),
+            NSBackingStoreBuffered, False)
+        win.setOpaque_(False)
+        win.setBackgroundColor_(NSColor.clearColor())
+        win.setHasShadow_(True)
+        win.setIgnoresMouseEvents_(True)
+        win.setHidesOnDeactivate_(False)
+        win.setReleasedWhenClosed_(False)
+        win.setLevel_(2002)  # ueber Menueleiste/Statusleiste (kCGScreenSaver-nah)
+        win.setCollectionBehavior_(
+            NSWindowCollectionBehaviorCanJoinAllSpaces
+            | NSWindowCollectionBehaviorStationary
+            | NSWindowCollectionBehaviorFullScreenAuxiliary)
+        view = win.contentView()
+        view.setWantsLayer_(True)
+        layer = view.layer()
+        layer.setBackgroundColor_(NSColor.colorWithSRGBRed_green_blue_alpha_(
+            0.85, 0.08, 0.08, 0.96).CGColor())
+        layer.setCornerRadius_(self.H / 2)
+        tf = NSTextField.labelWithString_("● REC")
+        tf.setTextColor_(NSColor.whiteColor())
+        tf.setFont_(NSFont.boldSystemFontOfSize_(13))
+        tf.setFrame_(NSMakeRect(0, 4, self.W, 18))
+        tf.setAlignment_(1)  # center
+        view.addSubview_(tf)
+        self._win, self._label = win, tf
+
+    def screen(self):
+        from AppKit import NSScreen
+        screens = NSScreen.screens()
+        return screens[0] if screens else NSScreen.mainScreen()
+
+    def reposition(self):
+        try:
+            if self._win is None:
+                return
+            from AppKit import NSMakePoint
+            f = self.screen().frame()
+            vis = self.screen().visibleFrame()
+            # visibleFrame.top = Unterkante der Menueleiste
+            top = vis.origin.y + vis.size.height
+            x = f.origin.x + f.size.width - self.W - self.MARGIN
+            y = top - self.H - 4
+            self._win.setFrameOrigin_(NSMakePoint(x, y))
+        except Exception:
+            core.log.exception("rec badge reposition failed")
+
+    def _watch_screens(self):
+        if self._observer is not None:
+            return
+        from AppKit import NSApplicationDidChangeScreenParametersNotification
+        from Foundation import NSNotificationCenter
+        self._observer = NSNotificationCenter.defaultCenter(
+            ).addObserverForName_object_queue_usingBlock_(
+            NSApplicationDidChangeScreenParametersNotification, None, None,
+            lambda note: self.reposition())
+
+    def show(self, text="● REC"):
+        try:
+            if self._win is None:
+                self._build()
+                self._watch_screens()
+            self._label.setStringValue_(text)
+            self.reposition()
+            self._win.orderFrontRegardless()
+            self._visible = True
+            core.log.info("rec badge shown on %s", self.screen().localizedName())
+        except Exception:
+            core.log.exception("rec badge failed")
+
+    def update(self, elapsed_secs, quiet):
+        try:
+            if self._win is None or not self._visible:
+                return
+            dot = "●" if int(elapsed_secs * 2) % 2 == 0 else "○"
+            txt = "NO SIGNAL" if quiet else (
+                f"{elapsed_secs // 60:02d}:{elapsed_secs % 60:02d}")
+            self._label.setStringValue_(f"{dot} {txt}")
+            self.reposition()  # billig; faengt Bildschirmwechsel mitten in der Aufnahme
+        except Exception:
+            pass
+
+    def hide(self):
+        try:
+            if self._win is not None:
+                self._win.orderOut_(None)
+            self._visible = False
+        except Exception:
+            pass
+
+
 class _RecStatusItem:
-    """Recording indicator in the macOS menu bar (top right, next to the
-    clock): a blinking red dot plus elapsed time while recording, and a
-    NO SIGNAL warning when the mic stays silent. Native NSStatusItem, so it
-    is visible no matter which app is frontmost -- unlike an in-app window,
+    """Permanent Dictate icon in the macOS menu bar (top right, next to the
+    clock): a quiet mic dot when idle, a blinking red dot plus elapsed time
+    while recording, and a NO SIGNAL warning when the mic stays silent.
+    Clicking it opens the Dictate window. Native NSStatusItem, so it is
+    visible no matter which app is frontmost -- unlike an in-app window,
     which hides together with Dictate. All calls must happen on the main
     thread; every method fails silently so a menu-bar hiccup can never
     break a recording."""
 
     def __init__(self):
         self._item = None
+        self._click_target = None
+
+    def ensure_idle(self, window):
+        """Create the permanent icon once (call after startup)."""
+        try:
+            from AppKit import NSStatusBar, NSVariableStatusItemLength
+            from Foundation import NSObject
+
+            class _ClickForwarder(NSObject):
+                def showWindow_(self, sender):
+                    try:
+                        if window is not None:
+                            window.show_window()
+                    except Exception:
+                        pass
+
+            if self._item is None:
+                self._item = NSStatusBar.systemStatusBar(
+                    ).statusItemWithLength_(NSVariableStatusItemLength)
+                self._click_target = _ClickForwarder.alloc().init()
+                self._item.button().setTarget_(self._click_target)
+                self._item.button().setAction_("showWindow:")
+            self.back_to_idle()
+            core.log.info("menu idle icon shown")
+        except Exception:
+            core.log.exception("menu idle icon failed")
+
+    def back_to_idle(self):
+        try:
+            if self._item is None:
+                return
+            from AppKit import NSColor, NSForegroundColorAttributeName
+            from Foundation import NSAttributedString
+            s = NSAttributedString.alloc().initWithString_attributes_(
+                "◉", {NSForegroundColorAttributeName: NSColor.labelColor()})
+            self._item.button().setAttributedTitle_(s)
+        except Exception:
+            pass
 
     def show(self):
         try:
@@ -515,13 +736,7 @@ class _RecStatusItem:
             pass
 
     def hide(self):
-        try:
-            if self._item is not None:
-                from AppKit import NSStatusBar
-                NSStatusBar.systemStatusBar().removeStatusItem_(self._item)
-                self._item = None
-        except Exception:
-            pass
+        self.back_to_idle()
 
     def _update(self, text, red):
         from AppKit import (NSColor, NSForegroundColorAttributeName,
@@ -569,6 +784,8 @@ class MainWindow(QMainWindow):
         self._level_timer.setInterval(100)
         self._level_timer.timeout.connect(self._update_level)
         self._recitem = _RecStatusItem()
+        self._pill = _RecPill()
+        self._badge = _RecBadge()
         self._rec_start = 0.0
         self._rec_wall = None
 
@@ -642,6 +859,7 @@ class MainWindow(QMainWindow):
         self.start_listener()
         self._preload_local_if_needed()
         self._ensure_typing_trust()
+        QTimer.singleShot(1000, lambda: self._recitem.ensure_idle(self))
 
         if not core.provider_key(self.cfg):
             QTimer.singleShot(250, self.first_run)
@@ -903,19 +1121,34 @@ class MainWindow(QMainWindow):
         self.level_label.setText("Level: --")
         self._level_timer.start()
         self._hide_for_dictation()
+        self._play_sound("Pop")
         return True
 
+    @staticmethod
+    def _play_sound(name):
+        try:
+            from AppKit import NSSound
+            sound = NSSound.soundNamed_(name)
+            if sound is not None:
+                sound.play()
+        except Exception:
+            pass
+
     def _hide_for_dictation(self):
-        """Hide the main window; the menu-bar item keeps recording visible
-        while the dictation target keeps (or regains) keyboard focus."""
+        """Hide the main window; pill and menu-bar item keep recording
+        visible while the dictation target keeps (or regains) focus."""
         self.hide()
         if self._dictation_target:
             self._focus_app(self._dictation_target)
+        self._pill.show_pill()
         self._recitem.show()
+        self._badge.show()
 
     def _stop_level_meter(self):
         self._level_timer.stop()
+        self._pill.hide()
         self._recitem.hide()
+        self._badge.hide()
         self.level_bar.setValue(0)
         self.level_label.setText("Level: --")
 
@@ -928,6 +1161,7 @@ class MainWindow(QMainWindow):
             return
         pct = min(int(100 * (peak / 32768) ** 0.5), 100) if peak > 0 else 0
         self.level_bar.setValue(pct)
+        self._pill.bar.setValue(pct)
         elapsed = int(time.monotonic() - self._rec_start) if self._rec_start else 0
         if peak < SILENCE_PEAK:
             self._silent_secs += 0.1
@@ -938,11 +1172,15 @@ class MainWindow(QMainWindow):
         if self._silent_secs >= 3.0 and not self._warned_nosignal:
             self._warned_nosignal = True
             self.set_status("recording-quiet", "Recording... (NO SIGNAL -- check mic)")
+            self._pill.text.setText("NO SIGNAL -- check mic")
             core.log.warning("recording silent for %.0fs", self._silent_secs)
         elif self._warned_nosignal and self._silent_secs == 0.0:
             self._warned_nosignal = False
             self.set_status("recording", "Recording...")
+        if not self._warned_nosignal:
+            self._pill.text.setText(f"REC {elapsed // 60:02d}:{elapsed % 60:02d}")
         self._recitem.update(elapsed, self._warned_nosignal)
+        self._badge.update(elapsed, self._warned_nosignal)
 
     def stop_and_transcribe(self):
         # recorder.stop() can block for hundreds of ms on PipeWire close,
@@ -950,6 +1188,7 @@ class MainWindow(QMainWindow):
         # whole pipeline (stop + transcribe) onto a worker thread and update
         # status immediately from the main thread instead.
         self._stop_level_meter()
+        self._play_sound("Tink")
         self.set_status("transcribing", "Transcribing...")
         # Detach here, on the GUI thread: the take now belongs to the worker,
         # so pressing the hotkey again right away starts a fresh recording
@@ -959,6 +1198,7 @@ class MainWindow(QMainWindow):
 
     def _discard_take(self):
         self._stop_level_meter()
+        self._play_sound("Funk")
         take = self.recorder.detach()
         threading.Thread(target=core.Recorder.finish, args=(take,), daemon=True).start()
 
