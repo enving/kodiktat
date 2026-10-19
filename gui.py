@@ -1173,7 +1173,13 @@ class MainWindow(QMainWindow):
             self._warned_nosignal = True
             self.set_status("recording-quiet", "Recording... (NO SIGNAL -- check mic)")
             self._pill.text.setText("NO SIGNAL -- check mic")
-            core.log.warning("recording silent for %.0fs", self._silent_secs)
+            try:
+                import sounddevice as _sd
+                _dev = _sd.query_devices(kind="input")["name"]
+            except Exception:
+                _dev = "?"
+            core.log.warning("recording silent for %.0fs (input device: %s)",
+                             self._silent_secs, _dev)
         elif self._warned_nosignal and self._silent_secs == 0.0:
             self._warned_nosignal = False
             self.set_status("recording", "Recording...")

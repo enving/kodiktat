@@ -267,6 +267,10 @@ class Recorder:
             )
             stream.start()
             self._take = (stream, frames)
+            try:
+                log.info("recording from input: %s", sd.query_devices(stream.device)["name"])
+            except Exception:
+                pass
 
     def level(self):
         """Peak level of roughly the last 1.5 s, 0..32768 (0 when idle).
