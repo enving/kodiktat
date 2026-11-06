@@ -247,6 +247,16 @@ class SettingsDialog(QDialog):
         self.form.addRow("Model:", self.model_box)
 
         # --- Local-STT panel (shown only when a local provider is selected) ---
+        self.local_language_box = QComboBox()
+        for label, language in [
+            ("Automatisch: Parakeet v3 (DE/EN und weitere)", "auto"),
+            ("Deutsch: Primeline", "de"),
+            ("Englisch: Parakeet v3 (automatische Erkennung)", "en"),
+        ]:
+            self.local_language_box.addItem(label, language)
+        self.local_language_box.setCurrentIndex(
+            self.local_language_box.findData(core.local_language(self.cfg)))
+        self.form.addRow("Lokale Sprache:", self.local_language_box)
         import os as _os
         cpu_max = max(1, _os.cpu_count() or 1)
         self.local_status_label = QLabel()
@@ -258,8 +268,7 @@ class SettingsDialog(QDialog):
         self.local_threads_box.setRange(1, cpu_max)
         self.local_threads_box.setValue(int(self.cfg.get("local_stt_num_threads", min(4, cpu_max))))
         self.local_threads_box.setToolTip(
-            "sherpa-onnx CPU thread count. 4 = best latency/resource balance on\n"
-            "this system; more brings little. Changing this rebuilds the recognizer."
+            "CPU threads for local recognition. Changing this rebuilds the recognizer."
         )
         self.form.addRow("CPU threads:", self.local_threads_box)
 
@@ -300,6 +309,7 @@ class SettingsDialog(QDialog):
         # Wire the download-worker bridge, then sync UI to current provider.
         self._dl_status.connect(self.local_status_label.setText)
         self._dl_done.connect(self._on_download_done)
+        self.local_language_box.currentIndexChanged.connect(self._refresh_local_status)
         self.refresh_model_box(self.cfg.get("model", core.DEFAULT_MODEL))
         self.on_provider_changed()
 
@@ -328,15 +338,17 @@ class SettingsDialog(QDialog):
         self.form.setRowVisible(self.model_box, not is_local)
         self.form.setRowVisible(self.test_btn, not is_local)
         self.form.setRowVisible(self.local_status_label, is_local)
+        self.form.setRowVisible(self.local_language_box, is_local)
         self.form.setRowVisible(self.local_download_btn, is_local)
         self.form.setRowVisible(self.local_threads_box, is_local)
 
         # Hint text at the bottom of the dialog.
         if is_local:
             self.hint.setText(
-                "Runs entirely offline on your CPU. Model: parakeet-primeline "
-                "(German, ~640 MB, CC-BY-4.0). Attribution: primeline · NVIDIA · "
-                "<a href='https://github.com/k2-fsa/sherpa-onnx'>k2-fsa/sherpa-onnx</a>."
+                "CPU, offline nach dem Download (~640 MB je Modell). "
+                "auto/en: NVIDIA Parakeet v3 erkennt die Sprache automatisch; "
+                "en erzwingt kein Englisch. de: Primeline. Modelle: CC-BY-4.0. "
+                "ONNX: istupakov · flozen1981; Laufzeiten: onnx-asr · sherpa-onnx."
             )
         elif pid == "openai":
             self.hint.setText(
@@ -354,20 +366,22 @@ class SettingsDialog(QDialog):
     def _refresh_local_status(self):
         try:
             import local_stt
-            installed = local_stt.model_installed()
+            language = self.local_language_box.currentData()
+            info = local_stt.model_info(language)
+            installed = local_stt.model_installed(language)
         except ImportError:
             self.local_status_label.setText(
-                "sherpa-onnx not installed — run: pip install --user sherpa-onnx soundfile"
+                "Local STT dependencies missing; see README."
             )
             self.local_download_btn.setEnabled(False)
             self.local_download_btn.setText("Download model (~640 MB)")
             return
         if installed:
-            self.local_status_label.setText("Installed and ready.")
+            self.local_status_label.setText(f"{info['model_id']}: Dateien installiert.")
             self.local_download_btn.setEnabled(True)
             self.local_download_btn.setText("Re-download model")
         else:
-            self.local_status_label.setText("Not installed.")
+            self.local_status_label.setText(f"{info['model_id']}: nicht installiert.")
             self.local_download_btn.setEnabled(True)
             self.local_download_btn.setText("Download model (~640 MB)")
 
@@ -375,18 +389,21 @@ class SettingsDialog(QDialog):
         self.local_download_btn.setEnabled(False)
         self.local_download_btn.setText("Downloading...")
         self.local_status_label.setText("Starting download...")
-        threading.Thread(target=self._download_worker, daemon=True).start()
+        self.local_language_box.setEnabled(False)
+        language = self.local_language_box.currentData()
+        threading.Thread(target=self._download_worker, args=(language,), daemon=True).start()
 
-    def _download_worker(self):
+    def _download_worker(self, language):
         try:
             import local_stt
-            local_stt.download_model(progress_cb=lambda m: self._dl_status.emit(m))
+            local_stt.download_model(progress_cb=lambda m: self._dl_status.emit(m), language=language)
             self._dl_done.emit(True, "Installed.")
         except Exception as e:
             self._dl_done.emit(False, f"Download failed: {e}")
 
     def _on_download_done(self, ok, msg):
         self.local_status_label.setText(msg)
+        self.local_language_box.setEnabled(True)
         self.local_download_btn.setEnabled(True)
         self.local_download_btn.setText("Re-download model" if ok else "Retry download")
 
@@ -421,6 +438,7 @@ class SettingsDialog(QDialog):
             QMessageBox.warning(self, "Dictate", "API key rejected.")
 
     def values(self):
+        import local_stt
         # Sync current field back into the per-provider cache first, but only
         # if the shown provider actually has a key_field (local providers don't).
         pid = self.provider_box.currentData()
@@ -432,9 +450,11 @@ class SettingsDialog(QDialog):
             "openai_api_key":        self._keys.get("openai", ""),
             "mode":                  self.mode_box.currentData(),
             "key":                   self.key_box.currentData(),
-            "model":                 self.model_box.currentData(),
+            "model":                 (local_stt.model_info(self.local_language_box.currentData())["model_id"]
+                                      if core.PROVIDERS[pid].get("is_local") else self.model_box.currentData()),
             "threshold":             float(self.threshold_box.value()),
             "local_stt_num_threads": int(self.local_threads_box.value()),
+            "local_stt_language":    self.local_language_box.currentData(),
             "yorik_url":             self.yorik_url_edit.text().strip() or core.DEFAULT_CONFIG["yorik_url"],
             "yorik_token":           self._keys.get("yorik", ""),
         }
@@ -917,9 +937,10 @@ class MainWindow(QMainWindow):
             import local_stt
         except ImportError:
             return
-        if not local_stt.model_installed():
+        language = core.local_language(self.cfg)
+        if not local_stt.model_installed(language):
             return
-        local_stt.preload(int(self.cfg.get("local_stt_num_threads", local_stt.DEFAULT_THREADS)))
+        local_stt.preload(int(self.cfg.get("local_stt_num_threads", local_stt.DEFAULT_THREADS)), language=language)
 
     def first_run(self):
         QMessageBox.information(
@@ -928,7 +949,7 @@ class MainWindow(QMainWindow):
             "Open Settings to pick a transcription provider:\n\n"
             "  * Groq (cloud, free tier — console.groq.com)\n"
             "  * OpenAI (cloud — platform.openai.com)\n"
-            "  * Local (offline, German, CPU — one-time 640 MB download)",
+            "  * Local (offline, DE/EN, CPU — einmalig ~640 MB pro Modell)",
         )
         self.open_settings()
 
@@ -940,9 +961,14 @@ class MainWindow(QMainWindow):
         )
         thr = float(self.cfg.get("threshold", 0.0))
         thr_str = f"     Min hold: {thr:.1f}s" if thr > 0 else ""
+        model = self.cfg['model']
+        if core.PROVIDERS.get(self.cfg.get("provider"), {}).get("is_local"):
+            import local_stt
+            language = core.local_language(self.cfg)
+            model = f"{local_stt.model_info(language)['model_id']} ({language}, CPU)"
         self.info_label.setText(
             f"Mode: {mode_name}     Hotkey: {hotkey_name}     "
-            f"Model: {self.cfg['model']}{thr_str}"
+            f"Model: {model}{thr_str}"
         )
 
     def open_settings(self):

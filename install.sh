@@ -19,11 +19,10 @@ sudo apt-get install -y \
 echo
 echo "[2/4] Installing Python packages..."
 # Core deps: GUI, audio capture, hotkey listener, HTTP client, arrays.
-# Local-STT deps: sherpa-onnx runs Parakeet on CPU offline; soundfile is a
-# common companion; huggingface_hub downloads the model on demand.
+# Local-STT: onnx-asr for multilingual v3, sherpa-onnx for German Primeline.
 pip install --user --break-system-packages \
     PyQt6 sounddevice pynput requests numpy \
-    sherpa-onnx soundfile huggingface_hub
+    sherpa-onnx soundfile huggingface_hub 'onnx-asr[cpu,hub]==0.10.2'
 
 echo
 echo "[3/4] Setting up Wayland/evdev access..."
@@ -67,4 +66,4 @@ echo
 echo "On first launch: open Settings and pick a provider."
 echo "  - Groq (cloud, free tier):  https://console.groq.com"
 echo "  - OpenAI (cloud):           https://platform.openai.com/api-keys"
-echo "  - Local (offline German):   click 'Download model' in Settings (~640 MB, one-time)"
+echo "  - Local (offline DE/EN):    select auto/de/en, then 'Download model' (~640 MB per model)"

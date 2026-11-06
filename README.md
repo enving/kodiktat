@@ -1,10 +1,10 @@
 <h1 align="center">Kodiktat</h1>
 
-<p align="center"><strong>Diktieren per Hotkey. Auf Deutsch. Lokal. Open Source.</strong></p>
+<p align="center"><strong>Diktieren per Hotkey. Deutsch und Englisch. Lokal. Open Source.</strong></p>
 
 <p align="center">
   <a href="LICENSE"><img alt="Lizenz: MIT" src="https://img.shields.io/badge/Lizenz-MIT-6c3ce1"></a>
-  <img alt="Python 3.10+" src="https://img.shields.io/badge/Python-3.10%2B-3776ab">
+  <img alt="Python 3.11+" src="https://img.shields.io/badge/Python-3.11%2B-3776ab">
   <img alt="Spracherkennung: NVIDIA Parakeet" src="https://img.shields.io/badge/ASR-NVIDIA%20Parakeet-76b900">
   <img alt="Läuft lokal" src="https://img.shields.io/badge/l%C3%A4uft-lokal-0e8f7e">
   <img alt="Plattformen: macOS, Linux, Windows" src="https://img.shields.io/badge/macOS%20%C2%B7%20Linux%20%C2%B7%20Windows-lightgrey">
@@ -24,7 +24,7 @@
 > **Kurz gesagt: Taste halten oder zweimal antippen, sprechen, loslassen – der Text erscheint dort, wo dein Cursor steht.**
 
 **Kodiktat** verwandelt gesprochene Sprache in getippten Text, in jedem Programm: Editor, Terminal,
-Browser, Chat. Mit dem lokalen Modell **Parakeet** (Deutsch) bleibt dein Audio auf dem eigenen
+Browser, Chat. Mit dem lokalen Modell **Parakeet v3** bleibt dein deutsches oder englisches Audio auf dem eigenen
 Rechner – ohne Konto, ohne Abo, ohne Internet. Wer will, schaltet stattdessen Groq, OpenAI oder
 einen eigenen Server (Yorik) ein.
 
@@ -36,7 +36,7 @@ fremde Server oder erkennen Deutsch nur mittelmäßig. Kodiktat dreht das um:
 | | Kodiktat | typische Cloud-Diktierdienste |
 |---|---|---|
 | Wo landet das Audio? | **auf deinem Rechner** (lokaler Modus) | Server des Anbieters |
-| Deutsch | **deutsch feinabgestimmtes Modell** | oft nachrangig |
+| Sprachen | **automatische Erkennung, u. a. Deutsch und Englisch; Primeline für Deutsch wählbar** | abhängig vom Anbieter |
 | Kosten | **kostenlos**, Open Source (MIT) | Abo oder Kontingent |
 | Offline nutzbar | **ja**, nach dem einmaligen Modell-Download | nein |
 | Wohin kommt der Text? | **in jedes Programm**, an den Cursor | meist nur in die eigene App |
@@ -62,7 +62,8 @@ fremde Server oder erkennen Deutsch nur mittelmäßig. Kodiktat dreht das um:
 <td width="50%" valign="top">
 
 **🧠 Erkennen**
-- **Lokal**: `parakeet-primeline` (deutsches Feintuning von NVIDIA Parakeet, int8-ONNX über [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx)), nur CPU, ca. 50 ms für 2 s Sprache
+- **Lokal, Standard `auto`**: NVIDIA Parakeet TDT 0.6B v3, mehrsprachig mit automatischer Spracherkennung, int8-ONNX über [onnx-asr](https://github.com/istupakov/onnx-asr), ausdrücklich CPU
+- **Lokal, `de`**: `parakeet-primeline`, deutsch spezialisiertes Feintuning, int8-ONNX über [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx), CPU
 - **Yorik** (Heimserver): ein Parakeet für alle Geräte im Haus
 - **Groq**: `whisper-large-v3-turbo`, `whisper-large-v3`
 - **OpenAI**: `gpt-4o-mini-transcribe`, `gpt-4o-transcribe`, `whisper-1`
@@ -84,13 +85,14 @@ fremde Server oder erkennen Deutsch nur mittelmäßig. Kodiktat dreht das um:
 git clone https://github.com/enving/kodiktat.git
 cd kodiktat
 python3 -m venv .venv
-./.venv/bin/pip install PyQt6 sounddevice pynput requests numpy sherpa-onnx soundfile huggingface_hub
+./.venv/bin/python -m pip install PyQt6 sounddevice pynput requests numpy sherpa-onnx soundfile huggingface_hub 'onnx-asr[cpu,hub]==0.10.2'
 ```
 
 Danach `./.venv/bin/python gui.py` starten oder **`Dictate starten.command`** doppelklicken.
 Für Diktat ganz ohne Internet: **`Parakeet-Modell-laden.command`** doppelklicken. Das Skript lädt das
-Modell (ca. 640 MB, fortsetzbar, mit Prüfsumme) und stellt Kodiktat auf den lokalen Anbieter und
-Command-Doppeltipp um. Einmal neu starten, fertig.
+mehrsprachige v3-Modell (ca. 640 MB, festgelegte Revision) und stellt Kodiktat auf den lokalen Anbieter
+mit `auto`. Hotkey, Aufnahmeart und CPU-Threads bleiben erhalten. Mit dem Argument `de` lädt es
+stattdessen Primeline. Laufende Instanzen bei Bedarf manuell neu starten.
 
 Beim ersten Start fragt macOS nach **Bedienungshilfen** (damit Text in andere Fenster getippt werden
 darf) und nach dem **Mikrofon**. Beides erlauben, sonst kommt zwar Text an, aber nicht im Zielfenster.
@@ -111,7 +113,7 @@ Hintergründe zu Wayland: [WAYLAND_NOTES.md](WAYLAND_NOTES.md).
 ### Windows
 
 ```bash
-pip install PyQt6 sounddevice pynput requests numpy
+python -m pip install PyQt6 sounddevice pynput requests numpy sherpa-onnx soundfile huggingface_hub 'onnx-asr[cpu,hub]==0.10.2'
 python gui.py
 ```
 
@@ -130,7 +132,7 @@ Standard-Hotkey unter Linux/Windows ist **F9**, auf dem Mac **Command zweimal an
   Menüleiste des Hauptbildschirms „● REC“ mit Laufzeit. Es nimmt keinen Fokus, erscheint auf allen
   Arbeitsflächen und über Vollbildprogrammen. Bleibt das Mikrofon länger als 3 Sekunden stumm,
   steht dort **NO SIGNAL**.
-- **Einstellungen**: Anbieter, Modus (halten/umschalten), Hotkey, Modell, CPU-Threads (lokal; 4 passt
+- **Einstellungen**: Anbieter, Modus (halten/umschalten), Hotkey, Modell, lokale Sprache (`auto`/`de`/`en`), CPU-Threads (lokal; 4 passt
   meist), Mindest-Haltedauer (ca. 2 s, wenn eine Modifikatortaste als Hotkey dient).
 - **Konfiguration**: `~/.config/dictate/config.json` (Rechte 600), Schlüssel bleiben lokal.
 - **Headless**: `dictate.py` ist die schlanke Kommandozeilenvariante für X11
@@ -142,11 +144,80 @@ Standard-Hotkey unter Linux/Windows ist **F9**, auf dem Mac **Command zweimal an
   "mode": "toggle",
   "key": "f9",
   "threshold": 0.0,
-  "local_stt_num_threads": 4
+  "local_stt_num_threads": 4,
+  "local_stt_language": "auto",
+  "model": "parakeet-tdt-0.6b-v3-int8"
 }
 ```
 
 Gültige Anbieter: `groq`, `openai`, `yorik`, `parakeet_local`.
+
+## Lokale Modelle und Python-API
+
+| Modus | Tatsächliches Modell | Verhalten |
+|---|---|---|
+| `auto` (neuer Standard) | NVIDIA Parakeet TDT 0.6B v3, int8 | erkennt Sprache automatisch, 25 unterstützte Sprachen inkl. DE/EN |
+| `en` | dasselbe v3-Modell | Auswahl für englische Aufnahmen; Sprache wird weiterhin automatisch erkannt |
+| `de` | Parakeet Primeline, int8 | deutsches Spezialmodell |
+
+`en` erzwingt kein Englisch. Kodiktat übergibt dem v3-Modell keinen Sprachparameter und übersetzt
+nicht. Gemischte Sprache kann erkannt werden; sehr kurze Wechsel, Akzente, Eigennamen und Störgeräusche
+können Fehler verursachen. Ein gewählter Modus ist keine Angabe über die tatsächlich erkannte Sprache.
+
+Beide Modelle liegen getrennt unter `~/.local/share/dictate/models/`:
+`parakeet-tdt-0.6b-v3-onnx/` für `auto`/`en`, der bisherige Ordner
+`parakeet-primeline-onnx/` für `de`. Die bisherigen `MODEL_DIR`, `MODEL_REPO`, `MODEL_REVISION`
+und `MODEL_FILES` bleiben als Primeline-Aliase bestehen. Neue Verbraucher verwenden `model_info()`.
+Die festgelegten Revisionen stehen ausschließlich in [local_stt.py](local_stt.py) und werden auch
+von `model_info()` ausgegeben. Pro Modell werden etwa 640 MB geladen. Beide dürfen installiert bleiben.
+Das Vorhandensein der Dateien wird geprüft; beschädigte ONNX-Dateien fallen beim Laden auf.
+
+Bestehende Konfigurationen mit `model: "parakeet-primeline-int8"` und ohne `local_stt_language`
+werden beim Lesen als `de` behandelt. So bleibt eine bisherige explizite Auswahl erhalten.
+Für den Wechsel auf v3 in Settings `auto` wählen und dieses Modell herunterladen.
+`local_stt_language` hat Vorrang vor dem alten `model`-Anzeigefeld. Explizit konfigurierte
+Cloud-Anbieter bleiben erhalten. Neue Konfigurationen starten lokal mit `auto`.
+
+```python
+import local_stt
+
+# Einmalig, bewusst mit Internet; für de separat aufrufen.
+local_stt.download_model(progress_cb=print, language="auto")
+assert local_stt.model_installed(language="auto")
+
+# Danach offline; Laden/Erkennen laden niemals Dateien nach.
+recognizer = local_stt.preload(num_threads=4, language="auto")
+text = recognizer.transcribe(audio)  # int16 oder float [-1, 1], Mono, 16 kHz
+info = local_stt.model_info(language="auto")  # JSON-fähig, ohne Laden
+# identische Auswahl: get_recognizer(num_threads=4, language="auto")
+# Bisherige Positionsargumente für Threads bzw. Download-Callback bleiben gültig.
+```
+
+`model_info()` liefert `language` (gewählter Modus), `model_id`, `repo_id`, `revision`, `model_dir`,
+`files`, `backend`, `provider`, `automatic_language_detection` und `language_forced`.
+Die geladene Auswahl steht außerdem in `recognizer.model_info`. Modus und Modellrevision erscheinen
+im Diktat-Log, ohne den erkannten Text. Ein Wechsel von Modus, Modell oder Threadzahl baut den
+Singleton neu auf. Fehlende Modelle, ungültige Modi oder Ladefehler werden sichtbar gemeldet;
+es gibt keinen Rückfall auf Primeline oder einen Cloud-Dienst.
+
+Für nachgelagerte Wortzeiten liefert `recognizer.transcribe_with_timestamps(audio)` ein Dictionary
+mit `text`, `tokens`, `timestamps` und `model_info`. Zeitmarken sind **Token-Anfangszeiten in Sekunden**
+bezogen auf das gesamte übergebene Audio, auch über Stückgrenzen hinweg. Das sind keine fertigen
+Wortintervalle: Die Laufzeiten liefern Teilstücke mit führenden Leerzeichen als Wortanfang
+(im Modellvokabular `▁`); Verbraucher müssen diese selbst
+gruppieren. Wortenden lassen sich daraus nur abschätzen. Die Funktion nutzt dieselbe Modellauswahl,
+Pegelhebung und Aufteilung wie `transcribe()`, das weiterhin nur `str` liefert.
+
+Lange Aufnahmen werden an leisen Stellen geteilt: v3 in höchstens 25 Sekunden, Primeline weiterhin
+in höchstens 90 Sekunden. Leise Stücke werden begrenzt angehoben, leere lange Ergebnisse nochmals
+in kürzeren Stücken versucht. Schnittgrenzen können Wörter trennen oder Kontext verlieren.
+Reine digitale Stille ergibt leeren Text; dies ist kein Sprachaktivitätsfilter für Raumgeräusche.
+
+Prüfungen ohne Modell oder Mikrofon:
+
+```bash
+./.venv/bin/python -m unittest discover -s tests -v
+```
 
 ## 🔍 Fehlersuche
 
@@ -168,8 +239,8 @@ Zeichenzahl, Dauer – nie der Text), inklusive dem benutzten **Eingabegerät**.
 
 Kodiktat gehört zu einer kleinen Familie lokaler, deutscher Open-Source-Werkzeuge mit der Vorsilbe
 **Ko** (wie *Kollege*, *kooperativ*, *Kontext*): [**Koprotokoll**](https://github.com/enving/Koprotokoll)
-schreibt Meetings mit, **Kodiktat** diktiert, weitere Werkzeuge teilen sich dasselbe deutsche
-Spracherkennungsmodell.
+schreibt Meetings mit, **Kodiktat** diktiert, weitere Werkzeuge nutzen lokale
+Spracherkennungsmodelle.
 
 ## 🤝 Herkunft und Lizenz
 
@@ -178,10 +249,15 @@ dessen Aufnahme-, Hotkey- und Anbieterlogik auf. Dazu kamen die macOS-Fassung (Q
 Freigabe, Pegelanzeige, Menüleistensymbol, rotes Abzeichen, Archiv je Aufnahme) und die deutsche
 Ausrichtung. Der Upstream bleibt als Git-Remote `upstream` eingebunden.
 
-Modelle und Laufzeit (CC-BY-4.0 bzw. ihre eigenen Lizenzen):
-[primeline](https://huggingface.co/flozen1981/parakeet-primeline-onnx) (Feintuning),
-[NVIDIA](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3) (Basismodell),
-[k2-fsa/sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) (Laufzeit).
+Modelle: **CC-BY-4.0**. Das mehrsprachige Basismodell stammt von
+[NVIDIA](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3), die verwendete int8-ONNX-Konvertierung
+von [istupakov](https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx).
+Das deutsche Feintuning stammt von [Primeline](https://huggingface.co/primeline), dessen ONNX-Export
+von [flozen1981](https://huggingface.co/flozen1981/parakeet-primeline-onnx).
+Laufzeiten: [onnx-asr](https://github.com/istupakov/onnx-asr) (MIT),
+[ONNX Runtime](https://github.com/microsoft/onnxruntime) (MIT) und
+[sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) (Apache-2.0). Die Modelllizenzen gelten
+unabhängig von der MIT-Lizenz dieses Programms.
 
 **Lizenz: MIT** – siehe [LICENSE](LICENSE). Der ursprüngliche Urheberhinweis (winidi, 2026) bleibt
 erhalten.

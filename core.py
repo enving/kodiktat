@@ -59,19 +59,22 @@ PROVIDERS = {
         "url_field":     "yorik_url",   # base URL, editable in Settings
     },
     "parakeet_local": {
-        "label":         "Local (Parakeet DE, CPU offline)",
+        "label":         "Local (Parakeet DE/EN, CPU offline)",
         "url":           None,
         "models_url":    None,
         "key_field":     None,
         "key_prefix":    None,
-        "default_model": "parakeet-primeline-int8",
-        "models": [("parakeet-primeline (German, int8)", "parakeet-primeline-int8")],
+        "default_model": "parakeet-tdt-0.6b-v3-int8",
+        "models": [
+            ("Parakeet v3 (multilingual, int8)", "parakeet-tdt-0.6b-v3-int8"),
+            ("Primeline (German, int8)", "parakeet-primeline-int8"),
+        ],
         "is_local":      True,
     },
 }
 
 # Backward-compat aliases used elsewhere in the codebase.
-DEFAULT_PROVIDER = "groq"
+DEFAULT_PROVIDER = "parakeet_local"
 DEFAULT_MODEL    = PROVIDERS[DEFAULT_PROVIDER]["default_model"]
 GROQ_URL         = PROVIDERS["groq"]["url"]
 GROQ_MODELS_URL  = PROVIDERS["groq"]["models_url"]
@@ -134,7 +137,8 @@ DEFAULT_CONFIG = {
     "key":                   "f9",
     "model":                 DEFAULT_MODEL,
     "threshold":             0.0,
-    "local_stt_num_threads": 4,    # sherpa-onnx CPU thread count for parakeet_local
+    "local_stt_num_threads": 4,
+    "local_stt_language":    "auto",  # auto/en: v3 automatic detection; de: Primeline
     "yorik_url":             "http://127.0.0.1:8000",  # Yorik base URL (provider "yorik")
     "yorik_token":           "",   # personal API token from Yorik Settings → API tokens
 }
@@ -160,17 +164,33 @@ def provider_key(cfg):
     if p.get("is_local"):
         try:
             import local_stt
-            return "installed" if local_stt.model_installed() else ""
+            return "installed" if local_stt.model_installed(local_language(cfg)) else ""
         except ImportError:
             return ""
     return cfg.get(p["key_field"], "")
+
+
+def local_language(cfg):
+    """Migrate explicit legacy Primeline selection; never infer de from speech.
+
+    An explicit language takes precedence over the legacy model display field.
+    """
+    import local_stt
+    language = cfg.get("local_stt_language")
+    if language is None:
+        language = "de" if cfg.get("model") == "parakeet-primeline-int8" else "auto"
+    local_stt.model_info(language)  # fail visibly for invalid modes
+    return language
 
 
 def load_config():
     cfg = dict(DEFAULT_CONFIG)
     if CONFIG_PATH.exists():
         try:
-            cfg.update(json.loads(CONFIG_PATH.read_text()))
+            saved = json.loads(CONFIG_PATH.read_text())
+            cfg.update(saved)
+            if "local_stt_language" not in saved:
+                cfg["local_stt_language"] = local_language(saved)
         except Exception:
             pass
     return cfg
@@ -364,7 +384,11 @@ def transcribe(audio, cfg):
     if p.get("is_local"):
         import local_stt
         threads = int(cfg.get("local_stt_num_threads", local_stt.DEFAULT_THREADS))
-        return local_stt.get_recognizer(num_threads=threads).transcribe(audio)
+        language = local_language(cfg)
+        info = local_stt.model_info(language)
+        log.info("local STT mode=%s model=%s revision=%s backend=%s provider=%s",
+                 language, info["model_id"], info["revision"], info["backend"], info["provider"])
+        return local_stt.get_recognizer(num_threads=threads, language=language).transcribe(audio)
     # HTTP providers
     key = cfg.get(p["key_field"], "")
     model = cfg.get("model") or p["default_model"]
