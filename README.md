@@ -100,6 +100,24 @@ stattdessen Primeline. Laufende Instanzen bei Bedarf manuell neu starten.
 
 Beim ersten Start fragt macOS nach **Bedienungshilfen** (damit Text in andere Fenster getippt werden
 darf) und nach dem **Mikrofon**. Beides erlauben, sonst kommt zwar Text an, aber nicht im Zielfenster.
+Ändert sich der Pfad der Python-Umgebung (neues `.venv`, Brew-Update), fehlt die Bedienungshilfe-Freigabe
+oft wieder. Kodiktat warnt dann im Log (`typing NOT trusted`) und öffnet die Einstellungen; danach die
+Freigabe für den neuen Pfad erteilen.
+
+#### Mit Homebrew (in Vorbereitung)
+
+Die Formel liegt im Repo unter [`Formula/kodiktat.rb`](Formula/kodiktat.rb). Sie installiert Kodiktat in
+eine eigene Umgebung, Abhängigkeiten als fertige Wheels, und legt den Befehl `kodiktat` an. Sie ist noch
+ohne Release-Tag und ohne öffentlichen Tap, deshalb nur mit `--HEAD` und nach Einbindung in einen Tap:
+
+```bash
+brew install --HEAD <tap>/kodiktat
+kodiktat
+```
+
+Für die Einrichtung mit Modell gilt der Abschnitt oben: Parakeet-Modell laden, dann die Freigaben erteilen.
+Die Formel installiert nur Kodiktat selbst; `Dictate starten.command` und `Parakeet-Modell-laden.command`
+gibt es nur im Repo.
 
 ### Linux
 
