@@ -84,9 +84,13 @@ fremde Server oder erkennen Deutsch nur mittelmäßig. Kodiktat dreht das um:
 ```bash
 git clone https://github.com/enving/kodiktat.git
 cd kodiktat
-python3 -m venv .venv
-./.venv/bin/python -m pip install PyQt6 sounddevice pynput requests numpy sherpa-onnx soundfile huggingface_hub 'onnx-asr[cpu,hub]==0.10.2'
+./install-macos.sh
 ```
+
+Der Installer legt `.venv` an (mit `uv`, falls installiert, sonst mit Python 3.11+ aus Homebrew), installiert
+alle Abhängigkeiten und prüft, dass sie laden. Er ist gefahrlos wiederholbar und lädt kein Modell.
+Ohne Installer geht es auch von Hand:
+`python3 -m venv .venv && ./.venv/bin/python -m pip install PyQt6 sounddevice pynput requests numpy sherpa-onnx soundfile huggingface_hub 'onnx-asr[cpu,hub]==0.10.2'`
 
 Danach `./.venv/bin/python gui.py` starten oder **`Dictate starten.command`** doppelklicken.
 Für Diktat ganz ohne Internet: **`Parakeet-Modell-laden.command`** doppelklicken. Das Skript lädt das
