@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Dictate GUI — PyQt6 tray app for voice dictation via Groq Whisper."""
 import math
+import os
+import subprocess
 import sys
 import threading
 import time
@@ -902,7 +904,13 @@ class MainWindow(QMainWindow):
             aslib.AXIsProcessTrusted.restype = ctypes.c_bool
             if aslib.AXIsProcessTrusted():
                 return
-            QMessageBox.information(
+            real = os.path.realpath(sys.executable)
+            core.log.warning("typing NOT trusted (Bedienungshilfen fehlen) for %s", real)
+            # Nach einem gespeicherten "Verweigert" zeigt macOS den Systemdialog
+            # nie wieder -- darum die Einstellungen direkt öffnen und den
+            # genauen Pfad nennen (Rechte hängen am Pfad der Python-Datei und
+            # gehen bei jedem uv-/brew-Update oder Neuaufbau der .venv verloren).
+            QMessageBox.warning(
                 self, "Dictate",
                 "Dictate darf noch nicht in andere Fenster tippen.\n\n"
                 "Bitte im nächsten Dialog den Zugriff erlauben "

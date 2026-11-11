@@ -85,4 +85,10 @@ Nächste Schritte:
        - Datenschutz & Sicherheit > Eingabeüberwachung (falls macOS danach fragt;
          die Command-Taste zweimal tippen liest den Tastenstatus)
      Danach Kodiktat neu starten.
+
+Wichtig: Die Rechte hängen am genauen Pfad der Python-Datei:
+  $(python3 -c 'import os,sys;print(os.path.realpath(sys.argv[1]))' "$PY")
+Ändert sich der Pfad (uv-/brew-Update, .venv neu gebaut), fehlen Bedienungshilfen
+wieder: Aufnahme und Erkennung laufen, aber es wird nichts getippt. Kodiktat warnt
+dann beim Start im Log (typing NOT trusted) und öffnet die Einstellungen.
 EOF
